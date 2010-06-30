@@ -9,14 +9,17 @@
 <<rpu.go>>=
 package main
 
+import (
 <<Imports>>
+)
+
 <<Definitions>>
 <<Basic functions>>
+<<UI functions>>
+func main() {
+<<Main function>>
+}
 
-<<Imports>>=
-import (
-    "fmt"
-)
 @
 \end{comment}
 
@@ -212,5 +215,89 @@ func (r *RPU) Next() {
 }
 
 @
-The IP advances one word (16 bits) every cycle
+The IP is incremented by 16 (16 bits = 1 word) every cycle
+\subsection{The CLI}
+The CLI is quite simple. The simulator takes only the \emph{-f} flag, which
+itself takes a file to be used as a memory image and the obligatory \emph{-h} flag,
+to do the obvious, show the help.\\
+<<Imports>>=
+	"flag"
+	"os"
+<<UI functions>>=
+func parseArguments() (file string) {
+	flag.StringVar(&file, "f", "", "File to be used as an memory image")
+	help := flag.Bool("h", false, "Show this help")
+	flag.Parse()
+
+	if file == "" || *help {
+		flag.PrintDefaults()
+		os.Exit(0)
+	}
+	return
+}
+
+<<Main function>>=
+	file := parseArguments()
+	rpu := new(RPU)
+@
+\subsection{File handling}
+Now, that we have a file to open, that is exactly what we are going to do next.
+For simplicity, the file is going to be read directly into (the RPU's) memory. Reading will be done
+one \emph{byte} at a time, writing it to the RPU's memory one \emph{bit} at a time.
+This seems unnecessarily complicated, however, providing an interface function to
+manipulate the memory on a byte basis does not seem right, either. I just decided to
+go with the former.\\
+<<Imports>>=
+	"fmt"
+	"io"
+<<UI functions>>=
+func readFile(r *RPU, filepath string) {
+        f, e := os.Open(filepath, os.O_RDONLY, 0)
+        if e != nil {
+		fmt.Fprintf(os.Stderr, "Could not open image file: %s\n", e.String())
+		os.Exit(1)
+        }
+        defer f.Close()
+
+	var data [1]byte
+	var bytecount uint16 = 0
+	for _, e = f.Read(&data); e != nil; _, e = f.Read(&data) {
+		var j uint16
+		for j = 0; j < 8; j++ {
+			var b Bit
+			b.Set((data[0]>>j))
+			r.SetAddress(bytecount*8+j, b)
+		}	
+		bytecount++
+		if bytecount >= 8192 {
+			break
+		}
+	}
+	return
+}
+
+<<Main function>>=
+	readFile(rpu, file)
+@
+Basic file checkig comes first. The returned error will contain an sufficient description
+of the error, if any occurs.
+Next, an array of 1 byte is allocated for reading. It will be filled with the next 8 bits
+from the file. Afterwards, this byte will be filled into the RPU's memory. From this,
+a important convention arises: \emph{The LSB of the byte is read first, saving it at a
+lower address as the bit's MSB}. This results in the following memory layout:\\
+
+\begin{tabular}{|l| c|c|c|c|c|c|c|c| c|c|c|c|}
+\hline
+\textbf{Byte number}& \multicolumn{8}{c|}{Byte 1} & \multicolumn{3}{c|}{Byte 2} & $\ldots$\\
+\textbf{Bit number}& 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 0 & $\ldots$ & 7 & $\ldots$\\
+\hline
+\textbf{Actual address} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & $\ldots$ & 15 & $\ldots$ \\
+\hline
+\end{tabular}\\
+Keep in mind, that, usually, bytes are shown in the reversed order, showing the MSB first.\\
+The explicit declaration of \textsf{bytecount} and \textsf{j} is necessary because using an 
+implicit declaration in the initial for-statement like \textsf{j := 0} causes \textsf{j} to 
+be of type \textsf{int}, which, for whatever reason, is illegal as a shift count type. 
+Since we add \textsf{bytecount} and \textsf{i} together, they have to have the same type, 
+causing an explicit declaration for \textsf{byecount}, too.\\
 \end{document}
