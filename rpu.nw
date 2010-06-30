@@ -1,0 +1,216 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{noweb}
+\usepackage{amssymb,amsmath}
+\usepackage{verbatim}
+\begin{document}
+
+\begin{comment}
+<<rpu.go>>=
+package main
+
+<<Imports>>
+<<Definitions>>
+<<Basic functions>>
+
+<<Imports>>=
+import (
+    "fmt"
+)
+@
+\end{comment}
+
+\section{Prelude}
+Ra\'ul Rojas, currently Professor for computer sciences at the FU Berlin, 
+published a rather small tutorial\footnote[1]{http://www.inf.fu-berlin.de/inst/ag-ki/rojas\_home/documents/tutorials/SmallestCPU.pdf} 
+on an invention of his(?) - the world's smallest, universal CPU, the \emph{Rojas Processing Unit}\footnote{I came up with that name}.\\
+I found his idea rather interesting and thought that I ought to write a simulator for this particular
+machine. Maybe, somewhere in the future, I plan to acutally realize the RPU in hardware.\\
+\subsection{The RPU}
+Rojas specifies the RPU as follows:
+\begin{description}
+\item[Memory:] The RPU has access to a \emph{bit}-addressable memory
+\item[Instruction set:] There are only 2 instructions: \textsf{LOAD} and \textsf{STORE}, 
+    which both take adresses of the bits to be loaded or stored, respectively.
+\item[ALU:] The ALU is the most surprising of all: It is a single NAND gate.
+\end{description}
+The proof that this is actually a universal CPU is merely outlined by Rojas:\\
+Obviously, the CPU is not able to make branches, jumps or manipulate the 
+instruction pointer in any way. Rojas defines, that the instruction pointer
+should wrap around at the end of memory and start over from adress 0.
+Additionaly, whenever the \textsf{LOAD} operation has been executed twice in a row,
+the ALU automatically executes the NAND operation on those bits and stores
+the result in the accumulator which can be stored at some address using \textsf{STORE}.\\
+It is well known, that the NAND operation is functionally complete and every
+other logical and therefore also every \emph{arithmetical} operation can be constructed 
+by using NAND only.\\
+With the certainty of us being able to basically execute any \emph{arithmetical} operation,
+we can emulate jumps to achieve turing-completeness.\\
+We define a control variable $t$ which can hold any numerical value.
+Let's take a look at the following expression:\\
+\begin{align*}
+s &= \mathrm{compare}(t,4)\\
+x &= (1-s) \cdot x^2 + s\cdot x
+\end{align*}
+The comparemacro (will be defined later) yields 0, if the parameters are equal, 1 if not.\\
+Therefore, the second expresion will only square x, if $s$ is 0, effectively
+skipping the expression if $t$ is not equal to 4.\\
+With this, branches can be emulated. If a code fragment sets $t$ to a new value and recalculates $s$,
+every following expression will be skipped until the proper section (introduced by its compare expression)
+is reached and $s$ is set appropriately.\\
+The desired behaviour of the compare macro can be achieved by a bitwise XOR between the two parameters and a bitwise OR
+of the result bits afterwards.\\
+Later on in the document, Rojas even removes the NAND gate and simulates that in software, too, stripping the processor
+of the last calculative part. I will not get into that, because it makes understanding ridiculously and unnecessarily hard.
+
+\subsection{Additions and modifications}
+Detailed defintions of the word size, numerical instruction set etc. are conveniently left out, as they are
+not necessary to proof the system functional. For an implementation however, they are rather crucial.\\
+The first modification which comes to mind, is the removal of OpCodes. Altough never explicitely introduced by Rojas, he 
+somehow implies that the operation to be executed is also stored in memory - which is superfluous since the RPU will always 
+execute two \textsf{LOAD}s and one \textsf{STORE} afterwards. This leaves us one very valuable bit more for addressing the
+memorya. As a drawback this convention renders 1 or 2 memory cells at the end useless. The memory will always be a power of 2,
+never being dividable by 3. But that's a minor tradeoff in contrast to just being able to address half as much memory.\\
+Which leads us to the next clearification: Memory and word size. Generally, every word size $n$ is possible, enabling the
+code to address $2^n \mathrm{bit} = 2^{n-3} \mathrm{byte}$  of memory. The word size is also the amount the 
+instruction pointer (IP) will be incremented each cycle. I will constrain the simulator to the word size 16.
+\section{Implementation}
+\subsection{Basic types}
+Let's start with defining the struct which will represent an instance of an RPU:\\
+<<Definitions>>=
+type RPU struct {
+    memory      [1<<13]uint8
+    ip          uint16
+    accumulator Bit
+}
+
+@ \\
+As a remainder: I restrict this simulator to a word size of 16 bits, enabling us to address $2^16=65535$ bits. Since the smalles
+amount of memory we can allocate, we have to work with bytes = 8 bits. So we can address 
+$\frac{2^16}{8} = \frac{2^16}{2^3} = 2^{16-3} = 2^13 = 8192$ bytes. \\
+I made all members private since this emulator is supposed to behave like a real processor, for which you might be able 
+query the current value of some of it's registers (for which I will provide functions later on), but not manipulate directly.\\
+A variable of this type will be initialized with a zero-filled array as memory and the instruction pointer set to zero.
+This is a perfectly sane initial status, there's no need for an extra initializer.\\
+
+Another thing is a new type for a bit.\\
+<<Definitions>>=
+type Bit uint8
+
+@ \\
+This is actually not necessary, but cluttering calculations in the program with masking the (theoretically) non-usable bits
+of this byte might make understanding the code harder and can be prevented by a simple type definition, getter/setter functions
+and the ominous NAND operation:\\
+<<Basic functions>>=
+func (b *Bit) Get() uint8 {
+    return uint8(*b)&1
+}
+
+func (b *Bit) Set(v uint8) {
+    *b = Bit(v&1)
+}
+
+func (b1 *Bit) NAND(b2 Bit) {
+    b1.Set(^(b1.Get() & b2.Get()))
+}
+
+@ \\
+\subsection{Basic functions}
+Since all of the members of the struct are private, no manipulation is possible right now. We'll have to provide an interface
+to:
+\begin{itemize}
+    \item set a memory cell's value (a bit!)
+    \item get the current value of any memorycell (a bit!)
+    \item get the current value of the IP
+    \item the operand pointed to by the IP (16 bit)
+    \item check which operation's (\textsf{LOAD} or \textsf{STORE}) turn it is
+    \item execute the current instruction
+    \item increment the IP
+\end{itemize}
+\subsubsection{Set a memory cell's value}
+<<Basic functions>>=
+func (r *RPU) SetAddress(addr uint16, value Bit) {
+    if value.Get() == 0 {
+        r.memory[addr>>3] &= uint8(^(1<<(addr&7)))
+    } else {
+        r.memory[addr>>3] |= uint8(1<<(addr&7))
+    }
+}
+
+@ \\
+Since the adress is given in bits and the memory is internally managed in bytes, 3 shifts to the right
+(equivalent to a division by 8) is done to convert between those ``types''.
+The first line determines, whether a bit has to be set or unset. For setting, the common masking ang
+bit-operating is done. The bit-wise and has the same effect as a modulo operation (but only because
+we are working with powers of 2).\\
+\subsubsection{Get a memory cell's value}
+This is analogous:\\
+<<Basic functions>>=
+func (r *RPU) GetAddress(addr uint16) (b Bit) {
+    b.Set(uint8(r.memory[addr>>3] >> (addr&7)))
+    return
+}
+
+@ \\
+\subsubsection{Get the IP}
+This is a straight forward getter function.\\
+<<Basic functions>>=
+func (r *RPU) GetIP() uint16 {
+    return r.ip
+}
+
+@
+\subsubsection{Get Operation}
+Since I chose to make the operations implicit, having a strict, well-defined order, this
+is also very straight forward:\\
+<<Definitions>>=
+const (
+    LOADA = 0
+    LOADB = 1
+    STORE = 2
+)
+
+<<Basic functions>>=
+func (r *RPU) GetOperation() uint8 {
+    return uint8(r.GetIP() % 3)
+}
+
+@
+I defined two LOAD operations, so we can now distinguish between the case, where we merely 
+load a value into the accumulator, or where we NAND' it with the existing value.\\
+\subsubsection{Get Operand}
+<<Basic functions>>=
+func (r *RPU) GetOperand() uint16 {
+    index := r.GetIP() >> 3
+    return uint16(r.memory[index])<<8 | uint16(r.memory[index+1])
+}
+
+@
+Index is, once again, the value after we converted from bits to bytes. Next,
+we have to concatenate this and the following byte to one single 16 bit integer.\\
+\subsubsection{Execute Instruction}
+This will be done by chaining a lot of the above together:\\
+<<Basic functions>>=
+func (r *RPU) Execute() {
+    operand := r.GetOperand()
+    switch(r.GetOperation()) {
+        case LOADA:
+            r.accumulator.Set(r.GetAddress(operand).Get())
+        case LOADB:
+            r.accumulator.NAND(r.GetAddress(operand))
+        case STORE:
+            r.SetAddress(operand, r.accumulator)
+    }
+}
+
+@
+It's surprising how small this routine is and it contains the whole behaviour of the RPU.\\
+\subsubsection{Increment IP}
+<<Basic functions>>=
+func (r *RPU) Next() {
+    r.ip += 16
+}
+
+@
+The IP advances one word (16 bits) every cycle
+\end{document}
