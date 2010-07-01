@@ -105,8 +105,8 @@ This is actually not necessary, but cluttering calculations in the program with 
 of this byte might make understanding the code harder and can be prevented by a simple type definition, getter/setter functions
 and the ominous NAND operation:\\
 <<Basic functions>>=
-func (b *Bit) Get() uint8 {
-    return uint8(*b)&1
+func (b Bit) Get() uint8 {
+    return uint8(b)&1
 }
 
 func (b *Bit) Set(v uint8) {
@@ -249,7 +249,6 @@ manipulate the memory on a byte basis does not seem right, either. I just decide
 go with the former.\\
 <<Imports>>=
 	"fmt"
-	"io"
 <<UI functions>>=
 func readFile(r *RPU, filepath string) {
         f, e := os.Open(filepath, os.O_RDONLY, 0)
@@ -289,15 +288,15 @@ lower address as the bit's MSB}. This results in the following memory layout:\\
 \begin{tabular}{|l| c|c|c|c|c|c|c|c| c|c|c|c|}
 \hline
 \textbf{Byte number}& \multicolumn{8}{c|}{Byte 1} & \multicolumn{3}{c|}{Byte 2} & $\ldots$\\
-\textbf{Bit number}& 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 0 & $\ldots$ & 7 & $\ldots$\\
+\textbf{Bit number}& LSB & 1 & 2 & 3 & 4 & 5 & 6 & MSB & LSB & $\ldots$ & MSB & $\ldots$\\
 \hline
-\textbf{Actual address} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & $\ldots$ & 15 & $\ldots$ \\
+\textbf{RPU address} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & $\ldots$ & 15 & $\ldots$ \\
 \hline
 \end{tabular}\\
 Keep in mind, that, usually, bytes are shown in the reversed order, showing the MSB first.\\
 The explicit declaration of \textsf{bytecount} and \textsf{j} is necessary because using an 
 implicit declaration in the initial for-statement like \textsf{j := 0} causes \textsf{j} to 
 be of type \textsf{int}, which, for whatever reason, is illegal as a shift count type. 
-Since we add \textsf{bytecount} and \textsf{i} together, they have to have the same type, 
-causing an explicit declaration for \textsf{byecount}, too.\\
+Since we perform addition on \textsf{bytecount} and \textsf{i}, they have to have the same type, 
+requiring an explicit declaration for \textsf{byecount}, too.\\
 \end{document}
