@@ -13,6 +13,10 @@ import (
 <<Imports>>
 )
 
+var (
+<<Global Variables>>
+)
+
 <<Definitions>>
 <<Basic functions>>
 <<UI functions>>
@@ -266,7 +270,7 @@ func readFile(r *RPU, filepath string) {
 			var b Bit
 			b.Set((data[0]>>j))
 			r.SetAddress(bytecount*8+j, b)
-		}	
+		}
 		bytecount++
 		if bytecount >= 8192 {
 			break
@@ -297,6 +301,132 @@ Keep in mind, that, usually, bytes are shown in the reversed order, showing the 
 The explicit declaration of \textsf{bytecount} and \textsf{j} is necessary because using an 
 implicit declaration in the initial for-statement like \textsf{j := 0} causes \textsf{j} to 
 be of type \textsf{int}, which, for whatever reason, is illegal as a shift count type. 
-Since we perform addition on \textsf{bytecount} and \textsf{i}, they have to have the same type, 
-requiring an explicit declaration for \textsf{byecount}, too.\\
+Since we add \textsf{bytecount} and \textsf{i} together, they have to have the same type, 
+causing an explicit declaration for \textsf{byecount}, too.\\
+\subsection{User interaction}
+The interaction with the user is done via a command prompt.
+Lines are going to be read and parsed. The corresponding function (so called \textit{manipulator})
+is looked up and executed upon the RPU instance. This way, the manipulators are maintainable
+separately and the whole system is easily expandable, allowing to implement new manipulators to
+improve usability.\\
+\subsubsection{Command prompt}
+Reading the user's input, parsing it and obtaining the corresponding manipulator is
+going to be done in a separate thread. This is not for performance reasons but 
+to embrace the idioms of go, which has the nice side effect of making the code
+more decoupled and improve readability. Additionally, the main loop gets smaller, because
+it only gets valid manipulators via the channel and doesn't have to do any checking.
+<<Definitions>>=
+type Manipulator func(r *RPU, params []string)
+type Command struct {
+	Manipulator Manipulator
+	Arguments   []string
+}
+
+@
+The manipulators are encapsulated in a struct to enable \textsf{GetInput}
+to return not only the manipulator itself but also the parameters passed.
+<<Imports>>=
+	"bufio"
+	"strings"
+<<UI functions>>=
+func getInput(s chan Command) {
+	linereader := bufio.NewReader(os.Stdin)
+	for {
+		line, _ := linereader.ReadString('\n')
+		cmd := strings.Split(line[0:len(line)-1], " ", -1)
+
+		cmdfunc, ok := commands[cmd[0]]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Unknown command")
+		} else {
+			s <- Command{cmdfunc, cmd[1:]}
+		}
+	}
+}
+
+@
+\textsf{commands} is a global map to be defined later, which maps from
+command string to a function pointer.\\
+
+<<Main function>>=
+	cmds := make(chan Command)
+	go getInput(cmds)
+	for {
+		cmd := <-cmds
+		cmd.Manipulator(rpu, cmd.Arguments)
+	}
+@
+And that's it! Now, we just have to implement a few basic commands. But the simulator is
+technically done.\\
+
+\section{Commands}
+\subsection{Next command}
+The most obvious and important command is the \textit{next} command. It executes the
+current instruction, increments the IP and dumps the content of current memory 
+cell onto the screen.\\
+As a usability bonus, the next command takes an argument to advance n execute itself
+n times at once
+<<Imports>>=
+	"strconv"
+<<UI functions>>=
+func NextCmd(r *RPU, args []string) {
+	var steps int
+	if len(args) >= 1 {
+		s, e := strconv.Atoi(args[0])
+		if e != nil {
+			fmt.Fprintf(os.Stderr, "Invalid argument\n")
+			return
+		}
+		steps = s
+	} else {
+		steps = 1
+	}
+	for i:=0; i < steps; i++ {
+		r.Execute()
+		r.Next()
+	}
+	fmt.Printf("%04x  %x|%04x\n", r.GetIP(), r.GetOperation(), r.GetOperand())
+}
+
+@
+\subsection{Exit command}
+Trivial and useful...\\
+<<UI functions>>=
+func ExitCmd(r *RPU, args []string) {
+	os.Exit(0)
+}
+
+@
+\subsection{Print command}
+The print command takes an address as an argument and prints the current value of that bit
+to the screen.\\
+<<UI functions>>=
+func PrintCmd(r *RPU, args []string) {
+	if len(args) <= 0 {
+		fmt.Fprintf(os.Stderr, "\"print\" needs address as an argument\n")
+		return
+	}
+
+	addr, e := strconv.Atoui(args[0])
+	if e != nil {
+		fmt.Fprintf(os.Stderr, "Invalid argument\n")
+		return
+	}
+	b := r.GetAddress(uint16(addr))
+	fmt.Printf("%04x: %x\n", uint16(addr), b.Get())
+}
+
+@
+\subsection{The map}
+<<Global Variables>>=
+	commands = map[string]Manipulator {
+		"": NextCmd,
+		"next": NextCmd,
+		"print": PrintCmd,
+		"exit": ExitCmd,
+	}
+
+@
+\textsf{NextCmd} also has an empty string as a key so that merely pressing Enter results
+in executing the next operation.\\
 \end{document}
