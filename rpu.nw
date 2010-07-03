@@ -38,7 +38,7 @@ Rojas specifies the RPU as follows:
 \begin{description}
 \item[Memory:] The RPU has access to a \emph{bit}-addressable memory
 \item[Instruction set:] There are only 2 instructions: \textsf{LOAD} and \textsf{STORE}, 
-    which both take adresses of the bits to be loaded or stored, respectively.
+	which both take adresses of the bits to be loaded or stored, respectively.
 \item[ALU:] The ALU is the most surprising of all: It is a single NAND gate.
 \end{description}
 The proof that this is actually a universal CPU is merely outlined by Rojas:\\
@@ -86,9 +86,9 @@ instruction pointer (IP) will be incremented each cycle. I will constrain the si
 Let's start with defining the struct which will represent an instance of an RPU:\\
 <<Definitions>>=
 type RPU struct {
-    memory      [1<<13]uint8
-    ip          uint16
-    accumulator Bit
+	memory      [1<<13]uint8
+	ip          uint16
+	accumulator Bit
 }
 
 @ \\
@@ -110,15 +110,15 @@ of this byte might make understanding the code harder and can be prevented by a 
 and the ominous NAND operation:\\
 <<Basic functions>>=
 func (b Bit) Get() uint8 {
-    return uint8(b)&1
+	return uint8(b) & 1
 }
 
 func (b *Bit) Set(v uint8) {
-    *b = Bit(v&1)
+	*b = Bit(v & 1)
 }
 
 func (b1 *Bit) NAND(b2 Bit) {
-    b1.Set(^(b1.Get() & b2.Get()))
+	b1.Set(^(b1.Get() & b2.Get()))
 }
 
 @ \\
@@ -126,22 +126,23 @@ func (b1 *Bit) NAND(b2 Bit) {
 Since all of the members of the struct are private, no manipulation is possible right now. We'll have to provide an interface
 to:
 \begin{itemize}
-    \item set a memory cell's value (a bit!)
-    \item get the current value of any memorycell (a bit!)
-    \item get the current value of the IP
-    \item the operand pointed to by the IP (16 bit)
-    \item check which operation's (\textsf{LOAD} or \textsf{STORE}) turn it is
-    \item execute the current instruction
-    \item increment the IP
+	\item set a memory cell's value (a bit!)
+	\item get the current value of any memorycell (a bit!)
+	\item get the current value of the IP
+	\item the operand pointed to by the IP (16 bit)
+	\item check which operation's (\textsf{LOAD} or \textsf{STORE}) turn it is
+	\item execute the current instruction
+	\item increment the IP
 \end{itemize}
 \subsubsection{Set a memory cell's value}
 <<Basic functions>>=
 func (r *RPU) SetAddress(addr uint16, value Bit) {
-    if value.Get() == 0 {
-        r.memory[addr>>3] &= uint8(^(1<<(addr&7)))
-    } else {
-        r.memory[addr>>3] |= uint8(1<<(addr&7))
-    }
+	bitmask := uint8(1 << (7 - (addr & 7)))
+	if value.Get() == 0 {
+		r.memory[addr>>3] &= ^bitmask
+	} else {
+		r.memory[addr>>3] |= bitmask
+	}
 }
 
 @ \\
@@ -154,8 +155,8 @@ we are working with powers of 2).\\
 This is analogous:\\
 <<Basic functions>>=
 func (r *RPU) GetAddress(addr uint16) (b Bit) {
-    b.Set(uint8(r.memory[addr>>3] >> (addr&7)))
-    return
+	b.Set(r.memory[addr>>3] >> (7 - (addr & 7)))
+	return
 }
 
 @ \\
@@ -163,7 +164,7 @@ func (r *RPU) GetAddress(addr uint16) (b Bit) {
 This is a straight forward getter function.\\
 <<Basic functions>>=
 func (r *RPU) GetIP() uint16 {
-    return r.ip
+	return r.ip
 }
 
 @
@@ -172,14 +173,14 @@ Since I chose to make the operations implicit, having a strict, well-defined ord
 is also very straight forward:\\
 <<Definitions>>=
 const (
-    LOADA = 0
-    LOADB = 1
-    STORE = 2
+	LOADA = 0
+	LOADB = 1
+	STORE = 2
 )
 
 <<Basic functions>>=
 func (r *RPU) GetOperation() uint8 {
-    return uint8(r.GetIP() % 3)
+	return uint8(r.GetIP() % 3)
 }
 
 @
@@ -188,26 +189,27 @@ load a value into the accumulator, or where we NAND' it with the existing value.
 \subsubsection{Get Operand}
 <<Basic functions>>=
 func (r *RPU) GetOperand() uint16 {
-    index := r.GetIP() >> 3
-    return uint16(r.memory[index]) << 8 | uint16(r.memory[index+1])
+	index := r.GetIP() >> 3
+	return uint16(r.memory[index+0])*0x100 + uint16(r.memory[index+1])
 }
 
 @
 Index is, once again, the value after we converted from bits to bytes. Next,
-we have to concatenate this and the following byte to one single 16 bit integer.\\
+we have to concatenate this and the following byte to one single 16 bit integer. We
+do this arithmetically to be independet of the host machine's endianess.\\
 \subsubsection{Execute Instruction}
 This will be done by chaining a lot of the above together:\\
 <<Basic functions>>=
 func (r *RPU) Execute() {
-    operand := r.GetOperand()
-    switch(r.GetOperation()) {
-        case LOADA:
-            r.accumulator.Set(r.GetAddress(operand).Get())
-        case LOADB:
-            r.accumulator.NAND(r.GetAddress(operand))
-        case STORE:
-            r.SetAddress(operand, r.accumulator)
-    }
+	operand := r.GetOperand()
+	switch r.GetOperation() { 
+		case LOADA:
+			r.accumulator.Set(r.GetAddress(operand).Get())
+		case LOADB:
+			r.accumulator.NAND(r.GetAddress(operand))
+		case STORE:
+			r.SetAddress(operand, r.accumulator)
+	}
 }
 
 @
@@ -215,7 +217,7 @@ It's surprising how small this routine is and it contains the whole behaviour of
 \subsubsection{Increment IP}
 <<Basic functions>>=
 func (r *RPU) Next() {
-    r.ip += 16
+	r.ip += 16
 }
 
 @
@@ -268,8 +270,8 @@ func readFile(r *RPU, filepath string) {
 		var j uint16
 		for j = 0; j < 8; j++ {
 			var b Bit
-			b.Set((data[0]>>(7-j)))
-			r.SetAddress(bytecount*8+j, b)
+			b.Set((data[0] >> (7 - j)))
+			r.SetAddress((bytecount<<3)|j, b)
 		}
 		bytecount++
 		if bytecount >= 8192 {
@@ -326,7 +328,7 @@ func getInput(s chan Command) {
 
 			cmdfunc, ok := commands[cmd[0]]
 			if !ok {
-				fmt.Fprintf(os.Stderr, "Unknown command")
+				fmt.Fprintf(os.Stderr, "Unknown command\n")
 			} else {
 				s <- Command{cmdfunc, cmd[1:]}
 			}
@@ -412,10 +414,10 @@ func PrintCmd(r *RPU, args []string) {
 \subsection{The map}
 <<Global Variables>>=
 	commands = map[string]Manipulator {
-		"": NextCmd,
-		"next": NextCmd,
+		"":      NextCmd,
+		"next":  NextCmd,
 		"print": PrintCmd,
-		"exit": ExitCmd,
+		"exit":  ExitCmd,
 	}
 
 @
