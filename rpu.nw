@@ -189,7 +189,7 @@ load a value into the accumulator, or where we NAND' it with the existing value.
 <<Basic functions>>=
 func (r *RPU) GetOperand() uint16 {
     index := r.GetIP() >> 3
-    return uint16(r.memory[index])<<8 | uint16(r.memory[index+1])
+    return uint16(r.memory[index]) << 8 | uint16(r.memory[index+1])
 }
 
 @
@@ -261,14 +261,14 @@ func readFile(r *RPU, filepath string) {
 		os.Exit(1)
         }
         defer f.Close()
-
+	fmt.Printf("Loading file...\n")
 	var data [1]byte
 	var bytecount uint16 = 0
-	for _, e = f.Read(&data); e != nil; _, e = f.Read(&data) {
+	for _, e = f.Read(&data); e == nil; _, e = f.Read(&data) {
 		var j uint16
 		for j = 0; j < 8; j++ {
 			var b Bit
-			b.Set((data[0]>>j))
+			b.Set((data[0]>>(7-j)))
 			r.SetAddress(bytecount*8+j, b)
 		}
 		bytecount++
@@ -285,19 +285,7 @@ func readFile(r *RPU, filepath string) {
 Basic file checkig comes first. The returned error will contain an sufficient description
 of the error, if any occurs.
 Next, an array of 1 byte is allocated for reading. It will be filled with the next 8 bits
-from the file. Afterwards, this byte will be filled into the RPU's memory. From this,
-a important convention arises: \emph{The LSB of the byte is read first, saving it at a
-lower address as the bit's MSB}. This results in the following memory layout:\\
-
-\begin{tabular}{|l| c|c|c|c|c|c|c|c| c|c|c|c|}
-\hline
-\textbf{Byte number}& \multicolumn{8}{c|}{Byte 1} & \multicolumn{3}{c|}{Byte 2} & $\ldots$\\
-\textbf{Bit number}& LSB & 1 & 2 & 3 & 4 & 5 & 6 & MSB & LSB & $\ldots$ & MSB & $\ldots$\\
-\hline
-\textbf{RPU address} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & $\ldots$ & 15 & $\ldots$ \\
-\hline
-\end{tabular}\\
-Keep in mind, that, usually, bytes are shown in the reversed order, showing the MSB first.\\
+from the file. Afterwards, this byte will be filled into the RPU's memory. 
 The explicit declaration of \textsf{bytecount} and \textsf{j} is necessary because using an 
 implicit declaration in the initial for-statement like \textsf{j := 0} causes \textsf{j} to 
 be of type \textsf{int}, which, for whatever reason, is illegal as a shift count type. 
@@ -411,7 +399,7 @@ func PrintCmd(r *RPU, args []string) {
 		return
 	}
 
-	addr, e := strconv.Atoui(args[0])
+	addr, e := strconv.Btoui64(args[0], 16)
 	if e != nil {
 		fmt.Fprintf(os.Stderr, "Invalid argument\n")
 		return
