@@ -332,14 +332,18 @@ to return not only the manipulator itself but also the parameters passed.
 func getInput(s chan Command) {
 	linereader := bufio.NewReader(os.Stdin)
 	for {
-		line, _ := linereader.ReadString('\n')
-		cmd := strings.Split(line[0:len(line)-1], " ", -1)
+		line, e := linereader.ReadString('\n')
+		if e == nil {
+			cmd := strings.Split(line[0:len(line)-1], " ", -1)
 
-		cmdfunc, ok := commands[cmd[0]]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Unknown command")
-		} else {
-			s <- Command{cmdfunc, cmd[1:]}
+			cmdfunc, ok := commands[cmd[0]]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "Unknown command")
+			} else {
+				s <- Command{cmdfunc, cmd[1:]}
+			}
+		} else if e != nil {
+			os.Exit(0)
 		}
 	}
 }
